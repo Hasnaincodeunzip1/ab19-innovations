@@ -1,0 +1,16 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # Keep Puppeteer's Chromium inside node_modules so Netlify's dependency
+  # cache keeps it, instead of re-downloading the browser on every build.
+  PUPPETEER_CACHE_DIR = "/opt/build/repo/node_modules/.cache/puppeteer"
+
+# Prerendering writes a real file per route, so static matching handles every
+# known path. This only catches what is left.
+[[redirects]]
+  from = "/*"
+  to = "/404.html"
+  status = 404

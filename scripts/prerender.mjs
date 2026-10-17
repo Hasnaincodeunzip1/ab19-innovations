@@ -8,12 +8,60 @@
  * with its own title, meta and JSON-LD, and hydrates into the full app.
  */
 import { spawn } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { routes } from './routes.mjs'
 
-const CHROME =
-  process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+/**
+ * Finds a Chrome to drive. Build machines are not developer laptops: CI images
+ * put the binary somewhere else, or ship none at all, so an explicit override
+ * wins, then Puppeteer's own download, then the usual system locations.
+ */
+async function findChrome() {
+  const fromEnv = [
+    process.env.CHROME_PATH,
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    process.env.CHROME_BIN,
+  ].filter(Boolean)
+  for (const candidate of fromEnv) {
+    if (existsSync(candidate)) return candidate
+    console.warn(`prerender: ignoring missing browser from env: ${candidate}`)
+  }
+
+  try {
+    const { default: puppeteer } = await import('puppeteer')
+    // Sync in Puppeteer <= 24, a promise from 25 on.
+    const path = await puppeteer.executablePath()
+    if (path && existsSync(path)) return path
+  } catch {
+    /* puppeteer not installed or no browser downloaded; try system paths */
+  }
+
+  const candidates =
+    process.platform === 'darwin'
+      ? [
+          '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+          '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        ]
+      : [
+          '/usr/bin/google-chrome-stable',
+          '/usr/bin/google-chrome',
+          '/usr/bin/chromium-browser',
+          '/usr/bin/chromium',
+          '/snap/bin/chromium',
+        ]
+  return candidates.find((path) => existsSync(path)) ?? null
+}
+
+const CHROME = await findChrome()
+if (!CHROME) {
+  console.warn(
+    '\nprerender: no Chrome found, so routes ship as the client-rendered SPA.\n' +
+      '           Crawlers will see an empty shell. Install the browser with\n' +
+      '           `npm i -D puppeteer`, or set CHROME_PATH to a binary.\n',
+  )
+  process.exit(0)
+}
 const PORT = 4188
 const CDP_PORT = 9422
 const DIST = 'dist'
@@ -52,6 +100,13 @@ const chrome = spawn(
   ],
   { stdio: 'ignore' },
 )
+
+// A bad binary fails the spawn asynchronously; without this the script just
+// waits out the CDP timeout and reports the wrong cause.
+chrome.on('error', (error) => {
+  console.error(`prerender: could not start Chrome at ${CHROME}\n${error.message}`)
+  process.exit(1)
+})
 
 const cleanup = () => {
   preview.kill()
