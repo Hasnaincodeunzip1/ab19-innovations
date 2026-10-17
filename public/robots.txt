@@ -1,0 +1,21 @@
+# AB19 Innovations — robots.txt
+User-agent: *
+Allow: /
+
+# AI search / answer engines are explicitly welcome
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+Sitemap: https://www.ab19innovations.in/sitemap.xml
