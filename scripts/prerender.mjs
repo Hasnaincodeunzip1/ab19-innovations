@@ -7,28 +7,41 @@
  * resulting DOM to dist/<route>/index.html. Each route then serves real HTML
  * with its own title, meta and JSON-LD, and hydrates into the full app.
  */
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { routes } from './routes.mjs'
 
 /**
- * Finds a Chrome to drive. Build machines are not developer laptops: CI images
- * put the binary somewhere else, or ship none at all, so an explicit override
- * wins, then Puppeteer's own download, then the usual system locations.
+ * Finds a Chrome that actually runs.
+ *
+ * Existing on disk is not the same as being able to start: a browser
+ * downloaded into node_modules brings no shared libraries, so on a bare build
+ * image it exits 127 on the first exec. Every candidate is therefore run once
+ * before it is trusted, and the first one that answers is the one we drive.
  */
 async function findChrome() {
-  const fromEnv = [
+  const failed = []
+
+  const probe = (path, label) => {
+    if (!path || !existsSync(path)) return null
+    const result = spawnSync(path, ['--version'], { stdio: 'ignore', timeout: 20000 })
+    if (result.status === 0) return path
+    const reason = result.error?.message ?? `exit ${result.status ?? result.signal}`
+    failed.push(`${label} -> ${path} (${reason})`)
+    return null
+  }
+
+  for (const path of [
     process.env.CHROME_PATH,
     process.env.PUPPETEER_EXECUTABLE_PATH,
     process.env.CHROME_BIN,
-  ].filter(Boolean)
-  for (const candidate of fromEnv) {
-    if (existsSync(candidate)) return candidate
-    console.warn(`prerender: ignoring missing browser from env: ${candidate}`)
+  ].filter(Boolean)) {
+    const found = probe(path, 'env')
+    if (found) return found
   }
 
-  const candidates =
+  const system =
     process.platform === 'darwin'
       ? [
           '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -41,20 +54,37 @@ async function findChrome() {
           '/usr/bin/chromium',
           '/snap/bin/chromium',
         ]
-  const installed = candidates.find((path) => existsSync(path))
-  // A browser installed by the system comes with its shared libraries; one
-  // downloaded into node_modules does not, so it is the second choice.
-  if (installed) return installed
+  for (const path of system) {
+    const found = probe(path, 'system')
+    if (found) return found
+  }
 
   try {
     const { default: puppeteer } = await import('puppeteer')
     // Sync in Puppeteer <= 24, a promise from 25 on.
-    const path = await puppeteer.executablePath()
-    if (path && existsSync(path)) return path
+    const found = probe(await puppeteer.executablePath(), 'puppeteer')
+    if (found) return found
   } catch {
-    /* puppeteer not installed or no browser downloaded */
+    /* not installed, or nothing downloaded */
   }
 
+  // Last resort: a Chromium that ships its own shared libraries, for build
+  // images that carry no GTK stack and give no way to install one.
+  if (process.platform === 'linux') {
+    try {
+      const { default: chromium } = await import('@sparticuz/chromium')
+      // Unpacks the binary and its libraries, and points LD_LIBRARY_PATH at
+      // them on this process, which the browser we spawn inherits.
+      const found = probe(await chromium.executablePath(), '@sparticuz/chromium')
+      if (found) return found
+    } catch {
+      /* not installed */
+    }
+  }
+
+  if (failed.length) {
+    console.warn(`prerender: found browsers that would not start:\n  ${failed.join('\n  ')}`)
+  }
   return null
 }
 
