@@ -160,9 +160,13 @@ chrome.on('error', (error) => {
 // Chrome exiting before the debug port opens is the common CI failure. Report
 // what it printed instead of letting it surface as a CDP timeout.
 let chromeExited = false
+// Set before we kill anything: once we have asked Chrome to stop, whatever it
+// exits with is expected, and some builds report a trapped SIGTERM as code 143
+// rather than as a signal.
+let shuttingDown = false
 chrome.on('exit', (code, signal) => {
   chromeExited = true
-  if (code === 0 || signal === 'SIGTERM') return
+  if (shuttingDown || code === 0 || signal === 'SIGTERM') return
   console.error(
     `prerender: Chrome exited early (code ${code}) before the debug port opened.\n` +
       `           binary: ${CHROME}\n` +
@@ -172,6 +176,7 @@ chrome.on('exit', (code, signal) => {
 })
 
 const cleanup = () => {
+  shuttingDown = true
   preview.kill()
   chrome.kill()
 }
