@@ -28,15 +28,6 @@ async function findChrome() {
     console.warn(`prerender: ignoring missing browser from env: ${candidate}`)
   }
 
-  try {
-    const { default: puppeteer } = await import('puppeteer')
-    // Sync in Puppeteer <= 24, a promise from 25 on.
-    const path = await puppeteer.executablePath()
-    if (path && existsSync(path)) return path
-  } catch {
-    /* puppeteer not installed or no browser downloaded; try system paths */
-  }
-
   const candidates =
     process.platform === 'darwin'
       ? [
@@ -50,7 +41,21 @@ async function findChrome() {
           '/usr/bin/chromium',
           '/snap/bin/chromium',
         ]
-  return candidates.find((path) => existsSync(path)) ?? null
+  const installed = candidates.find((path) => existsSync(path))
+  // A browser installed by the system comes with its shared libraries; one
+  // downloaded into node_modules does not, so it is the second choice.
+  if (installed) return installed
+
+  try {
+    const { default: puppeteer } = await import('puppeteer')
+    // Sync in Puppeteer <= 24, a promise from 25 on.
+    const path = await puppeteer.executablePath()
+    if (path && existsSync(path)) return path
+  } catch {
+    /* puppeteer not installed or no browser downloaded */
+  }
+
+  return null
 }
 
 const CHROME = await findChrome()
@@ -68,7 +73,7 @@ const DIST = 'dist'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-async function waitFor(url, { json = false, attempts = 160 } = {}) {
+async function waitFor(url, { json = false, attempts = 160, stop } = {}) {
   for (let i = 0; i < attempts; i++) {
     try {
       const response = await fetch(url)
@@ -76,6 +81,7 @@ async function waitFor(url, { json = false, attempts = 160 } = {}) {
     } catch {
       /* not up yet */
     }
+    if (stop?.()) throw new Error(`gave up waiting for ${url}: the process exited`)
     await sleep(250)
   }
   throw new Error(`timed out waiting for ${url}`)
@@ -94,17 +100,44 @@ const chrome = spawn(
     '--disable-gpu',
     '--no-first-run',
     '--hide-scrollbars',
+    // CI runs as root in a container with no user namespaces, where Chrome's
+    // sandbox cannot start, and with a /dev/shm too small for its default
+    // shared memory. Neither matters for a throwaway build-time browser.
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
     `--remote-debugging-port=${CDP_PORT}`,
     `--user-data-dir=${join(process.cwd(), 'node_modules', '.cache', 'prerender-profile')}`,
     'about:blank',
   ],
-  { stdio: 'ignore' },
+  // Chrome's own diagnostics are the only clue when it refuses to start, so
+  // they are kept rather than discarded into /dev/null.
+  { stdio: ['ignore', 'ignore', 'pipe'] },
 )
+
+let chromeStderr = ''
+chrome.stderr.on('data', (chunk) => {
+  chromeStderr += chunk
+})
 
 // A bad binary fails the spawn asynchronously; without this the script just
 // waits out the CDP timeout and reports the wrong cause.
 chrome.on('error', (error) => {
   console.error(`prerender: could not start Chrome at ${CHROME}\n${error.message}`)
+  process.exit(1)
+})
+
+// Chrome exiting before the debug port opens is the common CI failure. Report
+// what it printed instead of letting it surface as a CDP timeout.
+let chromeExited = false
+chrome.on('exit', (code, signal) => {
+  chromeExited = true
+  if (code === 0 || signal === 'SIGTERM') return
+  console.error(
+    `prerender: Chrome exited early (code ${code}) before the debug port opened.\n` +
+      `           binary: ${CHROME}\n` +
+      (chromeStderr.trim() ? `${chromeStderr.trim()}\n` : ''),
+  )
   process.exit(1)
 })
 
@@ -122,6 +155,7 @@ try {
   await waitFor(`http://localhost:${PORT}/`)
   const { webSocketDebuggerUrl } = await waitFor(`http://127.0.0.1:${CDP_PORT}/json/version`, {
     json: true,
+    stop: () => chromeExited,
   })
 
   const socket = new WebSocket(webSocketDebuggerUrl)
