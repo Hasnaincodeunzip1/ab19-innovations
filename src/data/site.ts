@@ -10,7 +10,7 @@ export const site = {
   phone: '+91 79055 44611',
   /** Digits only, for wa.me links. */
   whatsapp: '917905544611',
-  url: 'https://www.ab19innovations.in',
+  url: 'https://ab19innovations.com',
   location: 'Gorakhpur, Uttar Pradesh, India',
   legalName: 'AB19 Innovations Private Limited',
 } as const

@@ -201,7 +201,7 @@ cards, plus JSON-LD for `Organization`, `WebSite` and `ProfessionalService` (wit
 
 Placeholders that need real values:
 
-- **Canonical domain** — `https://www.ab19innovations.in` appears in `index.html`,
+- **Canonical domain** — `https://ab19innovations.com` appears in `index.html`,
   `public/robots.txt`, `scripts/routes.mjs` and `src/data/site.ts`.
 - **Contact details** live in `site` in `src/data/site.ts`: `founder@ab19innovations.com`
   and WhatsApp `+91 9026358544` (`whatsappUrl()` builds the wa.me links). They also appear in

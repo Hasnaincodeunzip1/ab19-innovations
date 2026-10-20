@@ -3,7 +3,7 @@ import { services } from '../src/data/services.ts'
 import { caseStudies, industries } from '../src/data/work.ts'
 import { posts } from '../src/data/posts.ts'
 
-export const SITE_URL = 'https://www.ab19innovations.in'
+export const SITE_URL = 'https://ab19innovations.com'
 
 export const routes = [
   { path: '/', priority: '1.0', changefreq: 'weekly' },
