@@ -35,3 +35,4 @@ econova-leads/
 
 # Wrangler local state
 .wrangler/
+.cloudflare/
