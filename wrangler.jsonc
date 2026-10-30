@@ -1,0 +1,18 @@
+{
+  // Static-assets Worker serving the prerendered build in dist/.
+  // Committed so Workers Builds does not auto-generate a config: its default,
+  // "single-page-application", answers unknown URLs with the home page and a 200,
+  // which Google reports as soft 404s. Every route is prerendered, so serve
+  // dist/404.html with a real 404 instead.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ab19-innovations",
+  "compatibility_date": "2026-10-19",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page",
+    "html_handling": "auto-trailing-slash"
+  }
+}

@@ -32,3 +32,6 @@ dist-ssr
 linkedin-mcp/
 econova-leads/
 .imgvenv/
+
+# Wrangler local state
+.wrangler/
